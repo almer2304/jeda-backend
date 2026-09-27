@@ -18,10 +18,11 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-validator": "^7.3.2",
-    "firebase-admin": "^14.3.0",
+    "firebase-admin": "12.7.0",
     "google-auth-library": "^11.0.2",
     "jose": "4.15.9",
     "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "3.0.1",
     "multer": "^2.3.0",
     "nodemailer": "^9.1.1",
     "pg": "^8.23.0",
@@ -31,6 +32,7 @@
     "nodemon": "^3.1.14"
   },
   "overrides": {
-    "jose": "4.15.9"
+    "jose": "4.15.9",
+    "jwks-rsa": "3.0.1"
   }
 }
