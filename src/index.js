@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-require('dotenv').config();
+try {
+  require('dotenv').config();
+} catch (_) {}
 
 const { testConnection } = require('./config/database');
 const { initializeFirebase } = require('./config/firebase');
