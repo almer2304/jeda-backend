@@ -56,29 +56,22 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ==========================================
-// Startup
-// ==========================================
-async function start() {
-  try {
-    // Test database connection
-    await testConnection();
-    console.log('✅ Database connected');
+// Initialize Firebase once
+initializeFirebase();
 
-    // Initialize Firebase Admin SDK
-    initializeFirebase();
-    console.log('✅ Firebase initialized');
-
-    app.listen(PORT, () => {
-      console.log(`🌿 Jeda Backend running on http://localhost:${PORT}`);
-      console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+// Local startup (only if executed directly, not on Vercel)
+if (require.main === module) {
+  testConnection()
+    .then(() => {
+      console.log('✅ Database connected');
+      app.listen(PORT, () => {
+        console.log(`🌿 Jeda Backend running on http://localhost:${PORT}`);
+        console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+      });
+    })
+    .catch((error) => {
+      console.error('❌ Failed to connect database:', error.message);
     });
-  } catch (error) {
-    console.error('❌ Failed to start server:', error.message);
-    process.exit(1);
-  }
 }
-
-start();
 
 module.exports = app;

@@ -21,8 +21,12 @@ function initializeFirebase() {
 
     if (admin.getApps && admin.getApps().length > 0) return;
 
-    // Handle escaped newlines in private key
+    // Handle escaped newlines and quotes in private key
     if (typeof privateKey === 'string') {
+      privateKey = privateKey.trim();
+      if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+        privateKey = privateKey.substring(1, privateKey.length - 1);
+      }
       privateKey = privateKey.replace(/\\n/g, '\n');
     }
 
