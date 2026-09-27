@@ -30,17 +30,24 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // ==========================================
 // Routes
 // ==========================================
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/follows', followRoutes);
-app.use('/api/leaderboard', leaderboardRoutes);
-app.use('/api/challenges', challengeRoutes);
-app.use('/api/badges', badgeRoutes);
-
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check & Root handlers
+app.get(['/', '/health', '/api/health'], (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), message: 'Jeda Backend Live' });
 });
+
+// Route mounts
+app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/users', userRoutes);
+app.use('/api/follows', followRoutes);
+app.use('/follows', followRoutes);
+app.use('/api/leaderboard', leaderboardRoutes);
+app.use('/leaderboard', leaderboardRoutes);
+app.use('/api/challenges', challengeRoutes);
+app.use('/challenges', challengeRoutes);
+app.use('/api/badges', badgeRoutes);
+app.use('/badges', badgeRoutes);
 
 // 404 handler
 app.use((req, res) => {
