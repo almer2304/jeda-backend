@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { query } = require('../config/database');
+const { evaluateAndUpdateStreak } = require('../services/user.service');
 
 /**
  * JWT authentication middleware.
@@ -15,6 +16,9 @@ async function authenticate(req, res, next) {
 
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Evaluate streak before reading user stats
+    await evaluateAndUpdateStreak(decoded.userId);
 
     // Fetch user from database to ensure they still exist
     const result = await query(

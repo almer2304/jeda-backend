@@ -3,12 +3,53 @@ const { calculateLockCompletionPoints, FORCED_OPEN_PENALTY } = require('../utils
 const { checkAndAwardBadges, getUserStats } = require('../utils/badge-checker');
 
 /**
+ * Evaluate and update user streak daily.
+ * Checks if last_streak_date was yesterday and if no forced_opens occurred.
+ * @param {string} userId
+ */
+async function evaluateAndUpdateStreak(userId) {
+  if (!userId) return;
+  try {
+    await query(
+      `WITH yesterday_violations AS (
+         SELECT COUNT(*)::int as cnt
+         FROM forced_opens
+         WHERE user_id = $1 AND opened_at >= CURRENT_DATE - INTERVAL '1 day' AND opened_at < CURRENT_DATE
+       )
+       UPDATE users u
+       SET
+         current_streak_days = CASE
+           WHEN u.last_streak_date = CURRENT_DATE THEN u.current_streak_days
+           WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) = 0 THEN u.current_streak_days + 1
+           WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) > 0 THEN 0
+           ELSE 1
+         END,
+         longest_streak_days = GREATEST(
+           u.longest_streak_days,
+           CASE
+             WHEN u.last_streak_date = CURRENT_DATE THEN u.current_streak_days
+             WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) = 0 THEN u.current_streak_days + 1
+             ELSE 1
+           END
+         ),
+         last_streak_date = CURRENT_DATE
+       WHERE u.id = $1 AND (u.last_streak_date IS NULL OR u.last_streak_date < CURRENT_DATE)`,
+      [userId]
+    );
+  } catch (error) {
+    console.error('Error evaluating streak:', error.message);
+  }
+}
+
+/**
  * Get user profile by ID (public view).
  * @param {string} userId
  * @param {string|null} viewerId - ID of the user viewing the profile (for follow status)
  * @returns {Promise<object|null>}
  */
 async function getUserProfile(userId, viewerId = null) {
+  await evaluateAndUpdateStreak(userId);
+
   // Satu query utama gantikan 6 round-trip: ambil user + follow counts + follow status dalam 1x
   const viewerClause = viewerId && viewerId !== userId
     ? `, EXISTS(SELECT 1 FROM follows WHERE follower_id = $2 AND following_id = u.id) as is_followed_by_viewer,
@@ -164,7 +205,7 @@ async function reportForcedOpen(userId, packageName, lockedAppId = null) {
 
   // Update user stats — increment forced opens, reset streak
   await query(
-    `UPDATE users SET total_forced_opens = total_forced_opens + 1, current_streak_days = 0 WHERE id = $1`,
+    `UPDATE users SET total_forced_opens = total_forced_opens + 1, current_streak_days = 0, last_streak_date = CURRENT_DATE WHERE id = $1`,
     [userId]
   );
 
@@ -206,4 +247,5 @@ module.exports = {
   searchUsers,
   syncLockedApps,
   reportForcedOpen,
+  evaluateAndUpdateStreak,
 };

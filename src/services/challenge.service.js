@@ -219,12 +219,31 @@ async function recordAttempt(challengeId, userId) {
   return { success: true };
 }
 
+async function joinChallenge(challengeId, userId) {
+  const challengeCheck = await query('SELECT id, status, challenge_type FROM challenges WHERE id = $1', [challengeId]);
+  if (challengeCheck.rows.length === 0) throw new Error('Tantangan tidak ditemukan');
+  const ch = challengeCheck.rows[0];
+
+  if (ch.status !== 'active') throw new Error('Tantangan sudah tidak aktif');
+
+  const result = await query(
+    `INSERT INTO challenge_participants (challenge_id, user_id, status, joined_at)
+     VALUES ($1, $2, 'accepted', NOW())
+     ON CONFLICT (challenge_id, user_id) DO UPDATE SET status = 'accepted', joined_at = NOW()
+     RETURNING *`,
+    [challengeId, userId]
+  );
+
+  return result.rows[0];
+}
+
 module.exports = {
   createChallenge,
   getGlobalChallenges,
   getMyChallenges,
   getChallengeDetail,
   respondToInvite,
+  joinChallenge,
   surrenderChallenge,
   recordAttempt,
 };

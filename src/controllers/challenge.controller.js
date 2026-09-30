@@ -71,12 +71,23 @@ async function recordAttempt(req, res, next) {
   }
 }
 
+async function joinChallenge(req, res, next) {
+  try {
+    const { id } = req.params;
+    const result = await challengeService.joinChallenge(id, req.user.id);
+    res.json({ message: 'Berhasil bergabung ke tantangan', participant: result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
 module.exports = {
   createChallenge,
   getGlobalChallenges,
   getMyChallenges,
   getChallengeDetail,
   respondInvite,
+  joinChallenge,
   surrender,
   recordAttempt,
 };
