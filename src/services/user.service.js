@@ -20,15 +20,15 @@ async function evaluateAndUpdateStreak(userId) {
        SET
          current_streak_days = CASE
            WHEN u.last_streak_date = CURRENT_DATE THEN u.current_streak_days
-           WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) = 0 THEN u.current_streak_days + 1
-           WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) > 0 THEN 0
+           WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) < 5 THEN u.current_streak_days + 1
+           WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) >= 5 THEN 0
            ELSE 1
          END,
          longest_streak_days = GREATEST(
            u.longest_streak_days,
            CASE
              WHEN u.last_streak_date = CURRENT_DATE THEN u.current_streak_days
-             WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) = 0 THEN u.current_streak_days + 1
+             WHEN u.last_streak_date = CURRENT_DATE - INTERVAL '1 day' AND (SELECT cnt FROM yesterday_violations) < 5 THEN u.current_streak_days + 1
              ELSE 1
            END
          ),
@@ -73,7 +73,7 @@ async function getUserProfile(userId, viewerId = null) {
   // 2 query paralel (bukan 4 sequential) untuk locks & badges
   const [activeLocksResult, badgesResult] = await Promise.all([
     query(
-      'SELECT app_name, package_name, lock_type, start_time, duration_hours FROM locked_apps WHERE user_id = $1 AND is_active = true ORDER BY start_time DESC LIMIT 50',
+      'SELECT id, app_name, package_name, lock_type, start_time, duration_hours, focus_goal, description, schedule_details, is_active FROM locked_apps WHERE user_id = $1 AND is_active = true ORDER BY start_time DESC LIMIT 50',
       [userId]
     ),
     query(
@@ -180,11 +180,31 @@ async function searchUsers(currentUserId, searchQuery, limit = 20) {
  */
 async function syncLockedApps(userId, locks) {
   for (const lock of locks) {
+    const scheduleDetailsJson = lock.schedule_details ? JSON.stringify(lock.schedule_details) : null;
     await query(
-      `INSERT INTO locked_apps (id, user_id, package_name, app_name, lock_type, start_time, duration_hours, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (id) DO UPDATE SET is_active = $8`,
-      [lock.id, userId, lock.package_name, lock.app_name, lock.lock_type, lock.start_time, lock.duration_hours, lock.is_active]
+      `INSERT INTO locked_apps (id, user_id, package_name, app_name, lock_type, start_time, duration_hours, is_active, focus_goal, description, schedule_details)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO UPDATE SET
+         is_active = $8,
+         lock_type = $5,
+         start_time = $6,
+         duration_hours = $7,
+         focus_goal = $9,
+         description = $10,
+         schedule_details = $11`,
+      [
+        lock.id,
+        userId,
+        lock.package_name,
+        lock.app_name,
+        lock.lock_type,
+        lock.start_time,
+        lock.duration_hours,
+        lock.is_active,
+        lock.focus_goal || null,
+        lock.description || null,
+        scheduleDetailsJson,
+      ]
     );
   }
 }
@@ -203,19 +223,35 @@ async function reportForcedOpen(userId, packageName, lockedAppId = null) {
     [userId, lockedAppId, packageName]
   );
 
-  // Update user stats — increment forced opens, reset streak
-  await query(
-    `UPDATE users SET total_forced_opens = total_forced_opens + 1, current_streak_days = 0, last_streak_date = CURRENT_DATE WHERE id = $1`,
+  // Hitung berapa kali user sudah membuka paksa aplikasi terkunci HARI INI
+  const todayResult = await query(
+    `SELECT COUNT(*)::int as cnt FROM forced_opens WHERE user_id = $1 AND opened_at >= CURRENT_DATE`,
     [userId]
   );
+  const todayForcedOpens = todayResult.rows[0]?.cnt || 1;
+  const isToleranceExceeded = todayForcedOpens >= 5;
 
-  // Apply points penalty
-  await query(
-    `INSERT INTO points_transactions (user_id, amount, source_type, description)
-     VALUES ($1, $2, 'forced_open', $3)`,
-    [userId, FORCED_OPEN_PENALTY, `Membuka paksa: ${packageName}`]
-  );
-  await query('UPDATE users SET total_points = GREATEST(total_points + $1, 0) WHERE id = $2', [FORCED_OPEN_PENALTY, userId]);
+  if (isToleranceExceeded) {
+    // Jika sudah >= 5 kali hari ini: batas toleransi terlampaui -> reset streak & kurangi poin
+    await query(
+      `UPDATE users SET total_forced_opens = total_forced_opens + 1, current_streak_days = 0, last_streak_date = CURRENT_DATE WHERE id = $1`,
+      [userId]
+    );
+
+    // Apply points penalty
+    await query(
+      `INSERT INTO points_transactions (user_id, amount, source_type, description)
+       VALUES ($1, $2, 'forced_open', $3)`,
+      [userId, FORCED_OPEN_PENALTY, `Membuka paksa (${todayForcedOpens}x hari ini): ${packageName}`]
+    );
+    await query('UPDATE users SET total_points = GREATEST(total_points + $1, 0) WHERE id = $2', [FORCED_OPEN_PENALTY, userId]);
+  } else {
+    // Jika masih 1-4 kali hari ini: masuk batas toleransi lupa -> streak & poin tetap aman!
+    await query(
+      `UPDATE users SET total_forced_opens = total_forced_opens + 1 WHERE id = $1`,
+      [userId]
+    );
+  }
 
   // Check if in any active challenge
   const challengeResult = await query(
@@ -238,7 +274,11 @@ async function reportForcedOpen(userId, packageName, lockedAppId = null) {
 
   // Get updated count
   const countResult = await query('SELECT total_forced_opens FROM users WHERE id = $1', [userId]);
-  return { total_forced_opens: countResult.rows[0].total_forced_opens };
+  return {
+    total_forced_opens: countResult.rows[0].total_forced_opens,
+    today_forced_opens: todayForcedOpens,
+    tolerance_exceeded: isToleranceExceeded,
+  };
 }
 
 module.exports = {

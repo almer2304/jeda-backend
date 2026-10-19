@@ -1,4 +1,5 @@
 const { query, getClient } = require('../config/database');
+const notificationService = require('./notification.service');
 
 async function createChallenge(creatorId, data) {
   const {
@@ -40,6 +41,10 @@ async function createChallenge(creatorId, data) {
       [challenge.id, creatorId]
     );
 
+    // Get creator info for notifications
+    const creatorUser = await client.query('SELECT username, display_name FROM users WHERE id = $1', [creatorId]);
+    const creatorName = creatorUser.rows[0]?.display_name || creatorUser.rows[0]?.username || 'Teman Anda';
+
     // Invite users if private
     if (hasInvites) {
       for (const userId of invite_user_ids) {
@@ -49,7 +54,31 @@ async function createChallenge(creatorId, data) {
              VALUES ($1, $2, 'invited')`,
             [challenge.id, userId]
           );
+
+          // Kirim notifikasi undangan tantangan ke orang yang ditantang
+          await notificationService.createNotification(
+            userId,
+            'challenge_invite',
+            'Tantangan Fokus Baru! 🎯',
+            `${creatorName} menantang Anda di: "${title}" (${duration_hours} jam fokus tanpa membuka ${app_name}). Buka dan buktikan komitmenmu!`,
+            { challengeId: challenge.id, challengeTitle: title, creatorId, appName: app_name }
+          );
         }
+      }
+    } else if (challenge_type === 'global') {
+      // Untuk tantangan global: kirim notifikasi ke beberapa user (terbatas, misal 5 teman atau random active users)
+      const targetUsers = await client.query(
+        'SELECT id FROM users WHERE id != $1 ORDER BY current_streak_days DESC LIMIT 5',
+        [creatorId]
+      );
+      for (const row of targetUsers.rows) {
+        await notificationService.createNotification(
+          row.id,
+          'challenge_global',
+          'Tantangan Global Tersedia! 🌍',
+          `Ada tantangan global baru: "${title}" (${duration_hours} jam). Ayo ikut bergabung bersama komunitas!`,
+          { challengeId: challenge.id, challengeTitle: title, appName: app_name, hasMorePublic: true }
+        );
       }
     }
 
@@ -152,13 +181,34 @@ async function respondToInvite(challengeId, userId, action) {
     [status, challengeId, userId]
   );
 
-  // Jika private & pending, cek apakah SEMUA undangan sudah diterima -> aktifkan tantangan
-  const challengeRes = await query(`SELECT id, status, challenge_type, duration_hours FROM challenges WHERE id = $1`, [challengeId]);
+  // Ambil detail tantangan & user yang merespons
+  const challengeRes = await query(
+    `SELECT c.id, c.title, c.creator_id, c.status, c.challenge_type, c.duration_hours,
+            u.username as responder_username, u.display_name as responder_name
+     FROM challenges c
+     JOIN users u ON u.id = $2
+     WHERE c.id = $1`,
+    [challengeId, userId]
+  );
+
   if (challengeRes.rows.length > 0) {
     const ch = challengeRes.rows[0];
+    const responderName = ch.responder_name || ch.responder_username || 'Teman Anda';
+
+    if (action === 'accept' && ch.creator_id !== userId) {
+      // Notifikasi ke creator: Tantangan telah diterima!
+      await notificationService.createNotification(
+        ch.creator_id,
+        'challenge_accepted',
+        'Tantangan Diterima! 🔥',
+        `@${ch.responder_username} (${responderName}) telah menerima tantangan fokus: "${ch.title}". Persaingan dimulai!`,
+        { challengeId: ch.id, challengeTitle: ch.title, acceptedByUserId: userId }
+      );
+    }
+
     if (ch.challenge_type === 'private' && ch.status === 'pending') {
       if (status === 'declined') {
-        // Jika ada yang menolak, tantangan dibatalkan (tidak adil lanjut tanpa persetujuan semua)
+        // Jika ada yang menolak, tantangan dibatalkan
         await query(`UPDATE challenges SET status = 'cancelled' WHERE id = $1`, [challengeId]);
       } else {
         // Cek sisa undangan 'invited'

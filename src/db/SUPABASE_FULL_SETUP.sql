@@ -150,6 +150,25 @@ CREATE TABLE IF NOT EXISTS public.challenge_forced_opens (
   CONSTRAINT challenge_forced_opens_pkey PRIMARY KEY (id)
 );
 
+-- 10b. NOTIFICATIONS TABLE (SOCIAL & CHALLENGES)
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+  type character varying(50) NOT NULL,
+  title text NOT NULL,
+  body text NOT NULL,
+  data jsonb DEFAULT '{}'::jsonb,
+  is_read boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT notifications_pkey PRIMARY KEY (id)
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id, created_at DESC);
+
+-- Alter locked_apps to support focus_goal, description, and schedule_details
+ALTER TABLE public.locked_apps ADD COLUMN IF NOT EXISTS focus_goal text;
+ALTER TABLE public.locked_apps ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE public.locked_apps ADD COLUMN IF NOT EXISTS schedule_details jsonb;
+
 -- ============================================================================
 -- 11. SEED DATA: 16 DEFAULT BADGES
 -- ============================================================================

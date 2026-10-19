@@ -15,6 +15,7 @@ const followRoutes = require('./routes/follow.routes');
 const leaderboardRoutes = require('./routes/leaderboard.routes');
 const challengeRoutes = require('./routes/challenge.routes');
 const badgeRoutes = require('./routes/badge.routes');
+const notificationRoutes = require('./routes/notification.routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -50,6 +51,8 @@ app.use('/api/challenges', challengeRoutes);
 app.use('/challenges', challengeRoutes);
 app.use('/api/badges', badgeRoutes);
 app.use('/badges', badgeRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/notifications', notificationRoutes);
 
 // 404 handler
 app.use((req, res) => {

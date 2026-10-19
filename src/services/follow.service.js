@@ -1,4 +1,5 @@
 const { query } = require('../config/database');
+const notificationService = require('./notification.service');
 
 /**
  * Follow a user.
@@ -9,13 +10,45 @@ async function followUser(followerId, followingId) {
   if (followerId === followingId) throw new Error('Tidak bisa follow diri sendiri');
 
   // Check if target user exists
-  const userCheck = await query('SELECT id FROM users WHERE id = $1', [followingId]);
+  const userCheck = await query('SELECT id, username, display_name FROM users WHERE id = $1', [followingId]);
   if (userCheck.rows.length === 0) throw new Error('User tidak ditemukan');
+
+  const followerUser = await query('SELECT id, username, display_name FROM users WHERE id = $1', [followerId]);
+  const followerName = followerUser.rows[0]?.display_name || followerUser.rows[0]?.username || 'Seseorang';
+  const followerUsername = followerUser.rows[0]?.username || 'user';
+
+  // Check if the other user was ALREADY following this follower (mutual check)
+  const isFollowingBack = await query(
+    'SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = $2',
+    [followingId, followerId]
+  );
+  const wasAlreadyFollowedByTarget = isFollowingBack.rows.length > 0;
 
   await query(
     'INSERT INTO follows (follower_id, following_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
     [followerId, followingId]
   );
+
+  // Send Notification to followingId
+  if (wasAlreadyFollowedByTarget) {
+    // Follow back notification: "USERNAME telah mengikuti Anda balik"
+    await notificationService.createNotification(
+      followingId,
+      'follow_back',
+      'Teman Baru Terhubung! 🤝',
+      `@${followerUsername} telah mengikuti Anda balik. Sekarang Anda berteman dan bisa saling memantau komitmen fokus!`,
+      { userId: followerId, username: followerUsername }
+    );
+  } else {
+    // Normal follow notification
+    await notificationService.createNotification(
+      followingId,
+      'follow',
+      'Pengikut Baru 👥',
+      `@${followerUsername} (${followerName}) mulai mengikuti Anda di Jeda.`,
+      { userId: followerId, username: followerUsername }
+    );
+  }
 }
 
 /**
